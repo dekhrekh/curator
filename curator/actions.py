@@ -960,7 +960,7 @@ class Snapshot(object):
         """
         if not self.skip_repo_fs_check:
             test_repo_fs(self.client, self.repository)
-        if snapshot_running(self.client):
+        if snapshot_running(self.client, self.repository):
             raise SnapshotInProgress('Snapshot already in progress.')
         try:
             self.loggit.info('Creating snapshot "{0}" from indices: '
@@ -1178,7 +1178,7 @@ class Restore(object):
         """
         if not self.skip_repo_fs_check:
             test_repo_fs(self.client, self.repository)
-        if snapshot_running(self.client):
+        if snapshot_running(self.client, self.repository):
             raise SnapshotInProgress(
                 'Cannot restore while a snapshot is in progress.')
         try:
