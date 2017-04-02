@@ -3,6 +3,49 @@
 Changelog
 =========
 
+5.0.0a2 (? ? ?)
+
+This will be the second alpha release of Curator 5. This should not be used for 
+production! There `will` be many more changes before 5.0.0 is released.
+
+**New Features**
+
+  * Reindex is here! The new reindex action has a ton of flexibility. You 
+    can even reindex from remote locations!
+
+  * Add dedicated "wait for completion" functionality. This supports health
+    checks, recovery (restore) checks, snapshot checks, and operations which
+    support the new tasks API.  All actions which can use this have been 
+    refactored to take advantage of this.  The benefit of this new feature is
+    that client timeouts will be less likely to happen when performing long
+    operations, like snapshot and restore.
+
+    NOTE: There is one caveat: forceMerge does not support this, per the 
+    Elasticsearch API. A forceMerge call will hold the client until complete, or
+    the client times out.  There is no clean way around this that I can discern.
+  
+  * Elasticsearch date math naming is supported and documented for the 
+    ``create_index`` action.  An integration test is included for validation.
+
+**General**
+
+  * Bumped ``click`` (python module) version dependency to 6.7
+  * Bumped ``urllib3`` (python module) version dependency to 1.20
+  * Bumped ``elasticsearch`` (python module) version dependency to 5.2
+  * Refactored a ton of code to be cleaner and hopefully more consistent.
+
+**Bug Fixes**
+
+  * Curator now logs version incompatibilities as an error, rather than just
+    raising an Exception. #874 (untergeek)
+  * The ``get_repository()`` function now properly raises an exception instead
+    of returning `False` if nothing is found. #761 (untergeek)
+
+**Breaking Changes**
+
+  * IndexList no longer checks to see if there are indices on initialization.
+
+
 5.0.0a1 (23 March 2017)
 -------------
 

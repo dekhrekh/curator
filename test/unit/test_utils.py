@@ -174,7 +174,7 @@ class TestChunkIndexList(TestCase):
 class TestGetIndices(TestCase):
     def test_client_exception(self):
         client = Mock()
-        client.info.return_value = {'version': {'number': '2.4.1'} }
+        client.info.return_value = {'version': {'number': '5.0.0'} }
         client.indices.get_settings.return_value = testvars.settings_two
         client.indices.get_settings.side_effect = testvars.fake_fail
         self.assertRaises(
@@ -182,25 +182,16 @@ class TestGetIndices(TestCase):
     def test_positive(self):
         client = Mock()
         client.indices.get_settings.return_value = testvars.settings_two
-        client.info.return_value = {'version': {'number': '2.4.1'} }
+        client.info.return_value = {'version': {'number': '5.0.0'} }
         self.assertEqual(
             ['index-2016.03.03', 'index-2016.03.04'],
             sorted(curator.get_indices(client))
         )
     def test_empty(self):
         client = Mock()
-        client.info.return_value = {'version': {'number': '2.4.1'} }
+        client.info.return_value = {'version': {'number': '5.0.0'} }
         client.indices.get_settings.return_value = {}
         self.assertEqual([], curator.get_indices(client))
-    def test_issue_826(self):
-        client = Mock()
-        client.info.return_value = {'version': {'number': '2.4.2'} }
-        client.indices.get_settings.return_value = testvars.settings_two
-        client.indices.exists.return_value = True
-        self.assertEqual(
-            ['.security', 'index-2016.03.03', 'index-2016.03.04'],
-            sorted(curator.get_indices(client))
-        )
 
 class TestCheckVersion(TestCase):
     def test_check_version_(self):
@@ -209,7 +200,7 @@ class TestCheckVersion(TestCase):
         self.assertIsNone(curator.check_version(client))
     def test_check_version_less_than(self):
         client = Mock()
-        client.info.return_value = {'version': {'number': '2.4.2'} }
+        client.info.return_value = {'version': {'number': '2.4.3'} }
         self.assertRaises(curator.CuratorException, curator.check_version, client)
     def test_check_version_greater_than(self):
         client = Mock()
@@ -301,25 +292,12 @@ class TestGetClient(TestCase):
             curator.get_client, **kwargs
         )
 
-class TestOverrideTimeout(TestCase):
-    def test_no_change(self):
-        self.assertEqual(30, curator.override_timeout(30, 'delete'))
-    def test_forcemerge_snapshot(self):
-        self.assertEqual(21600, curator.override_timeout(30, 'forcemerge'))
-        self.assertEqual(21600, curator.override_timeout(30, 'snapshot'))
-    def test_sync_flush(self):
-        self.assertEqual(180, curator.override_timeout(30, 'sync_flush'))
-    def test_invalid_action(self):
-        self.assertEqual(30, curator.override_timeout(30, 'invalid'))
-    def test_invalid_timeout(self):
-        self.assertRaises(TypeError, curator.override_timeout('invalid', 'delete'))
-
 class TestShowDryRun(TestCase):
     # For now, since it's a pain to capture logging output, this is just a
     # simple code coverage run
     def test_index_list(self):
         client = Mock()
-        client.info.return_value = {'version': {'number': '2.4.1'} }
+        client.info.return_value = {'version': {'number': '5.0.0'} }
         client.indices.get_settings.return_value = testvars.settings_two
         client.cluster.state.return_value = testvars.clu_state_two
         client.indices.stats.return_value = testvars.stats_two
@@ -335,15 +313,22 @@ class TestGetRepository(TestCase):
     def test_get_repository_positive(self):
         client = Mock()
         client.snapshot.get_repository.return_value = testvars.test_repo
-        self.assertEqual(testvars.test_repo, curator.get_repository(client, repository=testvars.repo_name))
+        self.assertEqual(testvars.test_repo, 
+            curator.get_repository(client, repository=testvars.repo_name))
     def test_get_repository_transporterror_negative(self):
         client = Mock()
-        client.snapshot.get_repository.side_effect = elasticsearch.TransportError
-        self.assertFalse(curator.get_repository(client, repository=testvars.repo_name))
+        client.snapshot.get_repository.side_effect = elasticsearch.TransportError(503,'foo','bar')
+        self.assertRaises(
+            curator.CuratorException,
+            curator.get_repository, client, repository=testvars.repo_name
+        )
     def test_get_repository_notfounderror_negative(self):
         client = Mock()
-        client.snapshot.get_repository.side_effect = elasticsearch.NotFoundError
-        self.assertFalse(curator.get_repository(client, repository=testvars.repo_name))
+        client.snapshot.get_repository.side_effect = elasticsearch.NotFoundError(404,'foo','bar')
+        self.assertRaises(
+            curator.CuratorException,
+            curator.get_repository, client, repository=testvars.repo_name
+        )
     def test_get_repository__all_positive(self):
         client = Mock()
         client.snapshot.get_repository.return_value = testvars.test_repos
@@ -642,3 +627,152 @@ class TestRollableAlias(TestCase):
         client = Mock()
         client.indices.get_alias.return_value = testvars.is_rollable_hypenated
         self.assertTrue(curator.rollable_alias(client, 'foo'))
+
+class TestHealthCheck(TestCase):
+    def test_no_kwargs(self):
+        client = Mock()
+        self.assertRaises(
+            curator.MissingArgument, curator.health_check, client
+        )
+    def test_key_value_match(self):
+        client = Mock()
+        client.cluster.health.return_value = testvars.cluster_health
+        self.assertTrue(
+            curator.health_check(client, status='green')
+        )
+    def test_key_value_no_match(self):
+        client = Mock()
+        client.cluster.health.return_value = testvars.cluster_health
+        self.assertFalse(
+            curator.health_check(client, status='red')
+        )
+    def test_key_not_found(self):
+        client = Mock()
+        client.cluster.health.return_value = testvars.cluster_health
+        self.assertRaises(
+            curator.ConfigurationError,
+            curator.health_check, client, foo='bar'
+        )
+
+class TestSnapshotCheck(TestCase):
+    def test_fail_to_get_snapshot(self):
+        client = Mock()
+        client.snapshot.get.side_effect = testvars.fake_fail
+        self.assertRaises(
+            curator.CuratorException, curator.snapshot_check, client
+        )
+    def test_in_progress(self):
+        client = Mock()
+        client.snapshot.get.return_value = testvars.oneinprogress
+        self.assertFalse(
+            curator.snapshot_check(client, 
+                repository='foo', snapshot=testvars.snap_name)
+        )
+    def test_success(self):
+        client = Mock()
+        client.snapshot.get.return_value = testvars.snapshot
+        self.assertTrue(
+            curator.snapshot_check(client, 
+                repository='foo', snapshot=testvars.snap_name)
+        )
+    def test_partial(self):
+        client = Mock()
+        client.snapshot.get.return_value = testvars.partial
+        self.assertTrue(
+            curator.snapshot_check(client, 
+                repository='foo', snapshot=testvars.snap_name)
+        )
+    def test_failed(self):
+        client = Mock()
+        client.snapshot.get.return_value = testvars.failed
+        self.assertTrue(
+            curator.snapshot_check(client, 
+                repository='foo', snapshot=testvars.snap_name)
+        )
+    def test_other(self):
+        client = Mock()
+        client.snapshot.get.return_value = testvars.othersnap
+        self.assertTrue(
+            curator.snapshot_check(client, 
+                repository='foo', snapshot=testvars.snap_name)
+        )
+
+class TestRestoreCheck(TestCase):
+    def test_fail_to_get_recovery(self):
+        client = Mock()
+        client.indices.recovery.side_effect = testvars.fake_fail
+        self.assertRaises(
+            curator.CuratorException, curator.restore_check, client, []
+        )
+    def test_incomplete_recovery(self):
+        client = Mock()
+        client.indices.recovery.return_value = testvars.unrecovered_output
+        self.assertFalse(
+            curator.restore_check(client, testvars.named_indices)
+        )
+    def test_completed_recovery(self):
+        client = Mock()
+        client.indices.recovery.return_value = testvars.recovery_output
+        self.assertTrue(
+            curator.restore_check(client, testvars.named_indices)
+        )
+
+class TestTaskCheck(TestCase):
+    def test_bad_task_id(self):
+        client = Mock()
+        client.tasks.get.side_effect = testvars.fake_fail
+        self.assertRaises(
+            curator.CuratorException, curator.task_check, client, 'foo'
+        )
+    def test_incomplete_task(self):
+        client = Mock()
+        client.tasks.get.return_value = testvars.incomplete_task
+        self.assertFalse(
+            curator.task_check(client, task_id=testvars.generic_task['task'])
+        )
+    def test_complete_task(self):
+        client = Mock()
+        client.tasks.get.return_value = testvars.completed_task
+        self.assertTrue(
+            curator.task_check(client, task_id=testvars.generic_task['task'])
+        )
+
+class TestWaitForIt(TestCase):
+    def test_bad_action(self):
+        client = Mock()
+        self.assertRaises(
+            curator.ConfigurationError, curator.wait_for_it, client, 'foo')
+    def test_reindex_action_no_task_id(self):
+        client = Mock()
+        self.assertRaises(
+            curator.MissingArgument, curator.wait_for_it, 
+            client, 'reindex')
+    def test_snapshot_action_no_snapshot(self):
+        client = Mock()
+        self.assertRaises(
+            curator.MissingArgument, curator.wait_for_it, 
+            client, 'snapshot', repository='foo')
+    def test_snapshot_action_no_repository(self):
+        client = Mock()
+        self.assertRaises(
+            curator.MissingArgument, curator.wait_for_it, 
+            client, 'snapshot', snapshot='foo')
+    def test_restore_action_no_indexlist(self):
+        client = Mock()
+        self.assertRaises(
+            curator.MissingArgument, curator.wait_for_it, 
+            client, 'restore')
+    def test_reindex_action_bad_task_id(self):
+        client = Mock()
+        client.tasks.get.return_value = {'a':'b'}
+        client.tasks.get.side_effect = testvars.fake_fail
+        self.assertRaises(
+            curator.CuratorException, curator.wait_for_it, 
+            client, 'reindex', task_id='foo')
+    def test_reached_max_wait(self):
+        client = Mock()
+        client.cluster.health.return_value = {'status':'red'}
+        self.assertRaises(curator.ActionTimeout,
+            curator.wait_for_it, client, 'replicas', 
+                wait_interval=1, max_wait=1
+        )
